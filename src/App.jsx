@@ -117,20 +117,27 @@ export default function App() {
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 flex-col bg-slate-950 text-slate-100">
       <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-slate-800 bg-slate-900/80 px-3 py-2">
-        <label className="flex items-center gap-2 text-sm text-slate-300">
-          <span className="whitespace-nowrap">Person</span>
-          <select
-            value={person}
-            onChange={(e) => setPerson(e.target.value)}
-            className="rounded-md border border-slate-600 bg-slate-800 px-2 py-1 text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500"
-          >
-            {PEOPLE.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div
+          className="flex min-w-0 flex-wrap gap-1 rounded-lg border border-slate-600 p-0.5"
+          role="group"
+          aria-label="Person"
+        >
+          {PEOPLE.map((p) => (
+            <button
+              key={p}
+              type="button"
+              aria-pressed={person === p}
+              onClick={() => setPerson(p)}
+              className={`rounded-md px-2.5 py-1 text-sm font-medium transition sm:px-3 ${
+                person === p
+                  ? 'bg-sky-600 text-white'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {p}
+            </button>
+          ))}
+        </div>
         <div
           className="flex rounded-lg border border-slate-600 p-0.5"
           role="tablist"
