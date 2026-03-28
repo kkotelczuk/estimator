@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react'
 
 const PEOPLE = ['Gabriel', 'Konrad', 'Akadera', 'łukasz', 'Dycu']
 const STORAGE_KEY = 'estimator-clicks'
+const RESULT_LAST_CLICKS = 3
 const COLS = 6
 const ROWS = 4
 const LAST_COL = COLS - 1
@@ -58,12 +59,6 @@ function writeClicks(clicks) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(clicks))
 }
 
-function sumForPerson(clicks, person) {
-  return clicks
-    .filter((e) => e.person === person)
-    .reduce((acc, e) => acc + (typeof e.score === 'number' ? e.score : 0), 0)
-}
-
 export default function App() {
   const [person, setPerson] = useState(PEOPLE[0])
   const [tab, setTab] = useState('matrix')
@@ -93,14 +88,31 @@ export default function App() {
     persist([])
   }, [persist])
 
-  const totals = useMemo(
-    () =>
-      PEOPLE.map((p) => ({
-        name: p,
-        total: sumForPerson(clicks, p),
-      })),
-    [clicks],
-  )
+  const clicksByPerson = useMemo(() => {
+    const map = Object.fromEntries(PEOPLE.map((p) => [p, []]))
+    for (const e of clicks) {
+      if (map[e.person]) map[e.person].push(e)
+    }
+    return map
+  }, [clicks])
+
+  const lastThreeByPerson = useMemo(() => {
+    return Object.fromEntries(
+      PEOPLE.map((p) => {
+        const list = clicksByPerson[p]
+        const n = list.length
+        // Columns 1–3: third-from-last, second-from-last, latest (always col 3 = newest)
+        return [
+          p,
+          [
+            n >= 3 ? list[n - 3] : null,
+            n >= 2 ? list[n - 2] : null,
+            n >= 1 ? list[n - 1] : null,
+          ],
+        ]
+      }),
+    )
+  }, [clicksByPerson])
 
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 flex-col bg-slate-950 text-slate-100">
@@ -180,23 +192,46 @@ export default function App() {
               Reset stored data
             </button>
             <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-700">
-              <table className="w-full border-collapse text-left text-sm">
+              <table className="border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b border-slate-700 bg-slate-900">
-                    <th className="p-3 font-semibold text-slate-200">Person</th>
-                    <th className="p-3 font-semibold text-slate-200">
-                      Sum of clicked values
+                    <th className="sticky left-0 z-10 bg-slate-900 p-3 font-semibold text-slate-200">
+                      Person
                     </th>
+                    {[
+                      { key: 'older', label: '-2' },
+                      { key: 'prev', label: '-1' },
+                      { key: 'latest', label: 'Latest' },
+                    ].map(({ key, label }) => (
+                      <th
+                        key={key}
+                        className="whitespace-nowrap p-3 font-semibold text-slate-200"
+                      >
+                        {label}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {totals.map(({ name, total }) => (
+                  {PEOPLE.map((name) => (
                     <tr
                       key={name}
                       className="border-b border-slate-800 odd:bg-slate-900/40"
                     >
-                      <td className="p-3 font-medium text-slate-200">{name}</td>
-                      <td className="p-3 tabular-nums text-slate-100">{total}</td>
+                      <td className="sticky left-0 z-[1] border-r border-slate-700 bg-slate-950 p-3 font-medium text-slate-200 odd:bg-slate-900/80">
+                        {name}
+                      </td>
+                      {Array.from({ length: RESULT_LAST_CLICKS }, (_, i) => {
+                        const entry = lastThreeByPerson[name][i]
+                        return (
+                          <td
+                            key={i}
+                            className="whitespace-nowrap p-3 tabular-nums text-slate-100"
+                          >
+                            {entry ? entry.display : '—'}
+                          </td>
+                        )
+                      })}
                     </tr>
                   ))}
                 </tbody>
