@@ -51,6 +51,7 @@ function writeClicks(clicks) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(clicks))
 }
 
+
 /* ---------- small UI helpers ---------- */
 
 function getInitials(name) {
@@ -75,12 +76,7 @@ export default function App() {
   const [person, setPerson] = useState(PEOPLE[0])
   const [tab, setTab] = useState('matrix')
   const [clicks, setClicks] = useState(() => readClicks())
-  const [rangeOrder, setRangeOrder] = useState(() => {
-    const nonTimer = SCORE_RANGES.filter((r) => !r.isTimer)
-    const timer = SCORE_RANGES.filter((r) => r.isTimer)
-    shuffleInPlace(nonTimer)
-    return [...nonTimer, ...timer]
-  })
+  const [rangeOrder, setRangeOrder] = useState(SCORE_RANGES)
   const [now, setNow] = useState(Date.now())
 
   /* live clock for "updated X ago" */
@@ -105,25 +101,19 @@ export default function App() {
         at: Date.now(),
       }
       persist([...clicks, entry])
-      // Auto-reshuffle after each click
-      setRangeOrder((prev) => {
-        const nonTimer = prev.filter((r) => !r.isTimer)
-        const timer = prev.filter((r) => r.isTimer)
-        shuffleInPlace(nonTimer)
-        return [...nonTimer, ...timer]
-      })
     },
     [person, clicks, persist],
   )
 
   const handleReshuffle = useCallback(() => {
-    setRangeOrder((prev) => {
-      const nonTimer = prev.filter((r) => !r.isTimer)
-      const timer = prev.filter((r) => r.isTimer)
+    setRangeOrder(() => {
+      const nonTimer = [...SCORE_RANGES.filter((r) => !r.isTimer)]
+      const timer = SCORE_RANGES.filter((r) => r.isTimer)
       shuffleInPlace(nonTimer)
       return [...nonTimer, ...timer]
     })
   }, [])
+
 
   const handleReset = useCallback(() => {
     persist([])
