@@ -1,16 +1,32 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 const PEOPLE = ['Gabriel', 'Konrad', 'Akadera', 'łukasz', 'Dycu']
 const STORAGE_KEY = 'estimator-clicks'
 const RESULT_LAST_CLICKS = 3
-const COLS = 6
-const ROWS = 4
-const LAST_COL = COLS - 1
-const FIXED_LAST_COL = [
-  { kind: 'fixed', display: '+5min', score: 5 },
-  { kind: 'fixed', display: '+15min', score: 15 },
-  { kind: 'fixed', display: '???', score: 0 },
+
+const SCORE_RANGES = [
+  { display: '0-2', label: 'LOSS CRITICAL', score: 1 },
+  { display: '2-4', label: 'MAJOR DEFEAT', score: 3 },
+  { display: '5-8', label: 'MINOR LOSS', score: 7 },
+  { display: '9-11', label: 'BALANCED', score: 10 },
+  { display: '12-14', label: 'MINOR WIN', score: 13 },
+  { display: '15-17', label: 'MAJOR WIN', score: 16 },
+  { display: '17-20', label: 'DOMINANCE', score: 19 },
+  { display: 'TIMER', label: 'SYSTEM SYNC', score: null, isTimer: true },
 ]
+
+const RANGE_COLORS = {
+  '0-2': { bg: '#5c1010', text: '#ff9090', border: '#7a1a1a', borderTop: '#cc2020' },
+  '2-4': { bg: '#dc4e4e', text: '#ffffff', border: '#c44040', borderTop: '#ff7070' },
+  '5-8': { bg: '#e07830', text: '#ffffff', border: '#c86828', borderTop: '#ffa850' },
+  '9-11': { bg: '#d4b820', text: '#1a1a0a', border: '#b8a018', borderTop: '#f0d840' },
+  '12-14': { bg: '#2a6e3a', text: '#c0f0cc', border: '#1e5a2c', borderTop: '#48b860' },
+  '15-17': { bg: '#0f3318', text: '#80d090', border: '#0a2810', borderTop: '#1a6828' },
+  '17-20': { bg: '#38c850', text: '#ffffff', border: '#2eb040', borderTop: '#60e870' },
+  TIMER: { bg: '#1e2428', text: '#8b949e', border: '#2d333b', borderTop: '#505860' },
+}
+
+/* ---------- helpers (logic unchanged) ---------- */
 
 function shuffleInPlace(arr) {
   for (let i = arr.length - 1; i > 0; i--) {
@@ -18,30 +34,6 @@ function shuffleInPlace(arr) {
     ;[arr[i], arr[j]] = [arr[j], arr[i]]
   }
   return arr
-}
-
-function buildMatrix() {
-  const nums = Array.from({ length: 21 }, (_, i) => i)
-  shuffleInPlace(nums)
-  const grid = []
-  let n = 0
-  for (let r = 0; r < ROWS; r++) {
-    const row = []
-    for (let c = 0; c < COLS; c++) {
-      if (c === LAST_COL && r < 3) {
-        row.push({ ...FIXED_LAST_COL[r] })
-      } else {
-        const value = nums[n++]
-        row.push({
-          kind: 'number',
-          display: String(value),
-          score: value,
-        })
-      }
-    }
-    grid.push(row)
-  }
-  return grid
 }
 
 function readClicks() {
@@ -59,11 +51,38 @@ function writeClicks(clicks) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(clicks))
 }
 
+/* ---------- small UI helpers ---------- */
+
+function getInitials(name) {
+  return name.slice(0, 2).toUpperCase()
+}
+
+function timeAgo(timestamp, now) {
+  const seconds = Math.floor((now - timestamp) / 1000)
+  if (seconds < 5) return 'just now'
+  if (seconds < 60) return `${seconds}s ago`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  return `${hours}h ago`
+}
+
+/* ================================================
+   App
+   ================================================ */
+
 export default function App() {
   const [person, setPerson] = useState(PEOPLE[0])
   const [tab, setTab] = useState('matrix')
-  const [matrix, setMatrix] = useState(() => buildMatrix())
   const [clicks, setClicks] = useState(() => readClicks())
+  const [rangeOrder, setRangeOrder] = useState(() => [...SCORE_RANGES])
+  const [now, setNow] = useState(Date.now())
+
+  /* live clock for "updated X ago" */
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [])
 
   const persist = useCallback((next) => {
     setClicks(next)
@@ -72,6 +91,7 @@ export default function App() {
 
   const handleCellClick = useCallback(
     (cell) => {
+      if (cell.isTimer) return // timer does not record
       const entry = {
         person,
         display: cell.display,
@@ -79,14 +99,23 @@ export default function App() {
         at: Date.now(),
       }
       persist([...clicks, entry])
-      setMatrix(buildMatrix())
     },
     [person, clicks, persist],
   )
 
+  const handleReshuffle = useCallback(() => {
+    setRangeOrder((prev) => {
+      const next = [...prev]
+      shuffleInPlace(next)
+      return next
+    })
+  }, [])
+
   const handleReset = useCallback(() => {
     persist([])
   }, [persist])
+
+  /* ---------- derived data (logic unchanged) ---------- */
 
   const clicksByPerson = useMemo(() => {
     const map = Object.fromEntries(PEOPLE.map((p) => [p, []]))
@@ -101,7 +130,6 @@ export default function App() {
       PEOPLE.map((p) => {
         const list = clicksByPerson[p]
         const n = list.length
-        // Columns 1–3: third-from-last, second-from-last, latest (always col 3 = newest)
         return [
           p,
           [
@@ -114,128 +142,256 @@ export default function App() {
     )
   }, [clicksByPerson])
 
-  return (
-    <div className="flex h-full min-h-0 w-full min-w-0 flex-col bg-slate-950 text-slate-100">
-      <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-slate-800 bg-slate-900/80 px-3 py-2">
-        <div
-          className="flex min-w-0 flex-wrap gap-1 rounded-lg border border-slate-600 p-0.5"
-          role="group"
-          aria-label="Person"
-        >
-          {PEOPLE.map((p) => (
-            <button
-              key={p}
-              type="button"
-              aria-pressed={person === p}
-              onClick={() => setPerson(p)}
-              className={`rounded-md px-2.5 py-1 text-sm font-medium transition sm:px-3 ${
-                person === p
-                  ? 'bg-sky-600 text-white'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {p}
-            </button>
-          ))}
-        </div>
-        <div
-          className="flex rounded-lg border border-slate-600 p-0.5"
-          role="tablist"
-          aria-label="View"
-        >
-          {[
-            { id: 'matrix', label: 'Matrix' },
-            { id: 'result', label: 'Result' },
-          ].map(({ id, label }) => (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              aria-selected={tab === id}
-              onClick={() => setTab(id)}
-              className={`rounded-md px-3 py-1 text-sm font-medium transition ${
-                tab === id
-                  ? 'bg-sky-600 text-white'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </header>
+  /* live-score simulation: best / lowest / totals */
+  const liveScore = useMemo(() => {
+    let best = null
+    let lowest = null
+    let total = 0
+    let count = 0
 
-      <main className="min-h-0 min-w-0 flex-1 p-2">
+    for (const p of PEOPLE) {
+      const list = clicksByPerson[p]
+      if (list.length === 0) continue
+      const latest = list[list.length - 1]
+      count++
+      total += latest.score
+      if (best === null || latest.score > best) best = latest.score
+      if (lowest === null || latest.score < lowest) lowest = latest.score
+    }
+
+    const maxPossible = PEOPLE.length * 20
+    const opponent = maxPossible - total
+    return { best, lowest, total, opponent, maxPossible, count }
+  }, [clicksByPerson])
+
+  const latestActivity = useMemo(() => {
+    if (clicks.length === 0) return null
+    return clicks[clicks.length - 1]
+  }, [clicks])
+
+  const awaitingPerson = useMemo(() => {
+    for (const p of PEOPLE) {
+      if (clicksByPerson[p].length === 0) return p
+    }
+    return null
+  }, [clicksByPerson])
+
+  /* ================================================
+     RENDER
+     ================================================ */
+  return (
+    <div className="app-container">
+
+      {/* ---- Main Content ---- */}
+      <main className="main-content">
         {tab === 'matrix' && (
-          <div
-            className="grid h-full min-h-0 w-full min-w-0 gap-1 sm:gap-2"
-            style={{
-              gridTemplateColumns: `repeat(${COLS}, minmax(0, 1fr))`,
-              gridTemplateRows: `repeat(${ROWS}, minmax(0, 1fr))`,
-            }}
-          >
-            {matrix.map((row, r) =>
-              row.map((cell, c) => (
-                <button
-                  key={`${r}-${c}`}
-                  type="button"
-                  onClick={() => handleCellClick(cell)}
-                  className="flex min-h-0 min-w-0 items-center justify-center rounded-lg border border-slate-700 bg-slate-800/90 text-center text-[clamp(0.75rem,4vmin,1.5rem)] font-semibold leading-tight text-sky-100 shadow-inner transition hover:border-sky-500/60 hover:bg-slate-700/90 active:scale-[0.98]"
-                >
-                  {cell.display}
+          <>
+            {/* Header */}
+            <div className="console-header">
+              <div>
+                <span className="mode-badge">ESTIMATOR MODE: S13</span>
+                <h1 className="console-title">CAPTAIN&rsquo;S TACTICAL CONSOLE</h1>
+                <p className="console-subtitle">
+                  WTC 2024 / Round 4 / Match 12.A
+                </p>
+              </div>
+              <div className="header-actions">
+                <button className="btn-outline" onClick={handleReshuffle}>
+                  RESHUFFLE LAYOUT
                 </button>
-              )),
-            )}
-          </div>
+                <button className="btn-primary" onClick={() => setTab('result')}>
+                  SHOW RESULTS
+                </button>
+              </div>
+            </div>
+
+            {/* Person Selector */}
+            <section className="person-section">
+              <h2 className="section-label">⚔ ACTIVE STRATEGIST SELECTION</h2>
+              <div className="person-grid">
+                {PEOPLE.map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setPerson(p)}
+                    className={`person-card ${person === p ? 'selected' : ''}`}
+                  >
+                    <div className="person-avatar">{getInitials(p)}</div>
+                    <div className="person-name">{p}</div>
+                    <div
+                      className={`person-status ${person === p ? 'active' : ''}`}
+                    >
+                      {person === p ? 'SELECTED' : 'STANDBY'}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            {/* Score Range Grid */}
+            <section className="score-grid">
+              {rangeOrder.map((cell, i) => {
+                const colors = RANGE_COLORS[cell.display]
+                return (
+                  <button
+                    key={`${cell.display}-${i}`}
+                    onClick={() => handleCellClick(cell)}
+                    className="score-cell"
+                    style={{
+                      '--cell-bg': colors.bg,
+                      '--cell-text': colors.text,
+                      '--cell-border': colors.border,
+                      '--cell-border-top': colors.borderTop,
+                    }}
+                  >
+                    <span className="score-value">{cell.display}</span>
+                    <span className="score-label">{cell.label}</span>
+                  </button>
+                )
+              })}
+            </section>
+
+            {/* Bottom Panel */}
+            <section className="bottom-panel">
+              {/* Live Score Simulation */}
+              <div className="live-score-panel">
+                <div className="live-score-header">
+                  <h3 className="live-score-title">LIVE SCORE SIMULATION</h3>
+                  <span className="live-score-updated">
+                    {latestActivity
+                      ? `UPDATED ${timeAgo(latestActivity.at, now)}`
+                      : 'NO DATA YET'}
+                  </span>
+                </div>
+                <div className="live-score-body">
+                  <div className="score-stat estimated">
+                    <span className="score-stat-value">{liveScore.total}</span>
+                    <span className="score-stat-label">ESTIMATED PTS</span>
+                  </div>
+                  <div className="score-bar-container">
+                    <div
+                      className="score-bar-fill"
+                      style={{
+                        width: `${
+                          liveScore.maxPossible > 0
+                            ? (liveScore.total / liveScore.maxPossible) * 100
+                            : 0
+                        }%`,
+                      }}
+                    />
+                    <div
+                      className="score-bar-opponent"
+                      style={{
+                        width: `${
+                          liveScore.maxPossible > 0
+                            ? (liveScore.opponent / liveScore.maxPossible) * 100
+                            : 0
+                        }%`,
+                      }}
+                    />
+                  </div>
+                  <div className="score-stat opponent">
+                    <span className="score-stat-value">{liveScore.opponent}</span>
+                    <span className="score-stat-label">OPPONENT PTS</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* CMD Activity Log */}
+              <div className="cmd-panel">
+                <div className="cmd-header">
+                  <span className="cmd-badge">CMD</span>
+                  {awaitingPerson ? (
+                    <span className="cmd-awaiting">
+                      <span className="cmd-indicator" />
+                      AWAITING ESTIMATE FOR: {awaitingPerson.toUpperCase()}
+                    </span>
+                  ) : liveScore.count === PEOPLE.length ? (
+                    <span className="cmd-awaiting">
+                      <span className="cmd-indicator" />
+                      ALL ESTIMATES SUBMITTED
+                    </span>
+                  ) : null}
+                </div>
+                <div className="cmd-body">
+                  {latestActivity ? (
+                    <>
+                      <p className="cmd-log">
+                        {latestActivity.person} selected &lsquo;
+                        {latestActivity.display}&rsquo; estimate
+                        {liveScore.best !== null &&
+                          ` · Best: ${liveScore.best} · Lowest: ${liveScore.lowest}`}
+                      </p>
+                      <button
+                        className="cmd-link"
+                        onClick={() => setTab('result')}
+                      >
+                        VIEW MATRIX DETAILS &gt;
+                      </button>
+                    </>
+                  ) : (
+                    <p className="cmd-log">
+                      No estimates recorded yet. Select a strategist and choose
+                      a score range.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </section>
+          </>
         )}
 
+        {/* ---- Result View ---- */}
         {tab === 'result' && (
-          <div className="flex h-full min-h-0 flex-col gap-4">
-            <button
-              type="button"
-              onClick={handleReset}
-              className="self-start rounded-lg border border-red-900/80 bg-red-950/80 px-4 py-2 text-sm font-medium text-red-100 hover:bg-red-900/80"
-            >
-              Reset stored data
-            </button>
-            <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-700">
-              <table className="border-collapse text-left text-sm">
+          <div className="result-view">
+            <div className="result-header">
+              <button className="btn-outline" onClick={() => setTab('matrix')}>
+                ← BACK TO CONSOLE
+              </button>
+              <h2 className="result-title">ESTIMATION RESULTS</h2>
+              <button className="btn-danger" onClick={handleReset}>
+                RESET DATA
+              </button>
+            </div>
+
+            <div className="result-table-container">
+              <table className="result-table">
                 <thead>
-                  <tr className="border-b border-slate-700 bg-slate-900">
-                    <th className="sticky left-0 z-10 bg-slate-900 p-3 font-semibold text-slate-200">
-                      Person
-                    </th>
+                  <tr>
+                    <th>STRATEGIST</th>
                     {[
                       { key: 'older', label: '-2' },
                       { key: 'prev', label: '-1' },
-                      { key: 'latest', label: 'Latest' },
+                      { key: 'latest', label: 'LATEST' },
                     ].map(({ key, label }) => (
-                      <th
-                        key={key}
-                        className="whitespace-nowrap p-3 font-semibold text-slate-200"
-                      >
-                        {label}
-                      </th>
+                      <th key={key}>{label}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {PEOPLE.map((name) => (
-                    <tr
-                      key={name}
-                      className="border-b border-slate-800 odd:bg-slate-900/40"
-                    >
-                      <td className="sticky left-0 z-[1] border-r border-slate-700 bg-slate-950 p-3 font-medium text-slate-200 odd:bg-slate-900/80">
+                    <tr key={name}>
+                      <td className="strategist-cell">
+                        <span className="mini-avatar">{getInitials(name)}</span>
                         {name}
                       </td>
                       {Array.from({ length: RESULT_LAST_CLICKS }, (_, i) => {
                         const entry = lastThreeByPerson[name][i]
                         return (
-                          <td
-                            key={i}
-                            className="whitespace-nowrap p-3 tabular-nums text-slate-100"
-                          >
-                            {entry ? entry.display : '—'}
+                          <td key={i} className="score-cell-result">
+                            {entry ? (
+                              <span
+                                className="result-badge"
+                                style={{
+                                  '--badge-bg':
+                                    RANGE_COLORS[entry.display]?.bg ||
+                                    '#2d333b',
+                                }}
+                              >
+                                {entry.display}
+                              </span>
+                            ) : (
+                              '—'
+                            )}
                           </td>
                         )
                       })}
@@ -243,6 +399,32 @@ export default function App() {
                   ))}
                 </tbody>
               </table>
+            </div>
+
+            {/* Summary Stats */}
+            <div className="result-summary">
+              <div className="summary-card">
+                <span className="summary-label">BEST ESTIMATE</span>
+                <span className="summary-value best">
+                  {liveScore.best ?? '—'}
+                </span>
+              </div>
+              <div className="summary-card">
+                <span className="summary-label">LOWEST ESTIMATE</span>
+                <span className="summary-value lowest">
+                  {liveScore.lowest ?? '—'}
+                </span>
+              </div>
+              <div className="summary-card">
+                <span className="summary-label">TOTAL ESTIMATED</span>
+                <span className="summary-value">{liveScore.total}</span>
+              </div>
+              <div className="summary-card">
+                <span className="summary-label">SUBMISSIONS</span>
+                <span className="summary-value">
+                  {liveScore.count}/{PEOPLE.length}
+                </span>
+              </div>
             </div>
           </div>
         )}
