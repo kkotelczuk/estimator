@@ -5,14 +5,14 @@ const STORAGE_KEY = 'estimator-clicks'
 const RESULT_LAST_CLICKS = 3
 
 const SCORE_RANGES = [
-  { display: '0-2', label: 'LOSS CRITICAL', score: 1 },
-  { display: '2-4', label: 'MAJOR DEFEAT', score: 3 },
-  { display: '5-8', label: 'MINOR LOSS', score: 7 },
-  { display: '9-11', label: 'BALANCED', score: 10 },
-  { display: '12-14', label: 'MINOR WIN', score: 13 },
-  { display: '15-17', label: 'MAJOR WIN', score: 16 },
-  { display: '17-20', label: 'DOMINANCE', score: 19 },
-  { display: 'TIMER', label: 'SYSTEM SYNC', score: null, isTimer: true },
+  { display: '0-2', label: 'LOSS CRITICAL', worst: 0, best: 2 },
+  { display: '2-4', label: 'MAJOR DEFEAT', worst: 2, best: 4 },
+  { display: '5-8', label: 'MINOR LOSS', worst: 5, best: 8 },
+  { display: '9-11', label: 'BALANCED', worst: 9, best: 11 },
+  { display: '12-14', label: 'MINOR WIN', worst: 12, best: 14 },
+  { display: '15-17', label: 'MAJOR WIN', worst: 15, best: 17 },
+  { display: '17-20', label: 'DOMINANCE', worst: 17, best: 20 },
+  { display: 'TIMER', label: 'SYSTEM SYNC', worst: null, best: null, isTimer: true },
 ]
 
 const RANGE_COLORS = {
@@ -75,7 +75,12 @@ export default function App() {
   const [person, setPerson] = useState(PEOPLE[0])
   const [tab, setTab] = useState('matrix')
   const [clicks, setClicks] = useState(() => readClicks())
-  const [rangeOrder, setRangeOrder] = useState(() => [...SCORE_RANGES])
+  const [rangeOrder, setRangeOrder] = useState(() => {
+    const nonTimer = SCORE_RANGES.filter((r) => !r.isTimer)
+    const timer = SCORE_RANGES.filter((r) => r.isTimer)
+    shuffleInPlace(nonTimer)
+    return [...nonTimer, ...timer]
+  })
   const [now, setNow] = useState(Date.now())
 
   /* live clock for "updated X ago" */
@@ -95,19 +100,28 @@ export default function App() {
       const entry = {
         person,
         display: cell.display,
-        score: cell.score,
+        worst: cell.worst,
+        best: cell.best,
         at: Date.now(),
       }
       persist([...clicks, entry])
+      // Auto-reshuffle after each click
+      setRangeOrder((prev) => {
+        const nonTimer = prev.filter((r) => !r.isTimer)
+        const timer = prev.filter((r) => r.isTimer)
+        shuffleInPlace(nonTimer)
+        return [...nonTimer, ...timer]
+      })
     },
     [person, clicks, persist],
   )
 
   const handleReshuffle = useCallback(() => {
     setRangeOrder((prev) => {
-      const next = [...prev]
-      shuffleInPlace(next)
-      return next
+      const nonTimer = prev.filter((r) => !r.isTimer)
+      const timer = prev.filter((r) => r.isTimer)
+      shuffleInPlace(nonTimer)
+      return [...nonTimer, ...timer]
     })
   }, [])
 
@@ -144,9 +158,8 @@ export default function App() {
 
   /* live-score simulation: best / lowest / totals */
   const liveScore = useMemo(() => {
-    let best = null
-    let lowest = null
-    let total = 0
+    let bestTotal = 0
+    let worstTotal = 0
     let count = 0
 
     for (const p of PEOPLE) {
@@ -154,14 +167,14 @@ export default function App() {
       if (list.length === 0) continue
       const latest = list[list.length - 1]
       count++
-      total += latest.score
-      if (best === null || latest.score > best) best = latest.score
-      if (lowest === null || latest.score < lowest) lowest = latest.score
+      bestTotal += latest.best
+      worstTotal += latest.worst
     }
 
-    const maxPossible = PEOPLE.length * 20
-    const opponent = maxPossible - total
-    return { best, lowest, total, opponent, maxPossible, count }
+    const maxPossible = 100
+    const bestOpponent = maxPossible - bestTotal
+    const worstOpponent = maxPossible - worstTotal
+    return { bestTotal, worstTotal, bestOpponent, worstOpponent, maxPossible, count }
   }, [clicksByPerson])
 
   const latestActivity = useMemo(() => {
@@ -185,7 +198,7 @@ export default function App() {
       {/* ---- Main Content ---- */}
       <main className="main-content">
         {tab === 'matrix' && (
-          <>
+          <div className="dashboard-fullpage">
             {/* Header */}
             <div className="console-header">
               <div>
@@ -197,17 +210,17 @@ export default function App() {
               </div>
               <div className="header-actions">
                 <button className="btn-outline" onClick={handleReshuffle}>
-                  RESHUFFLE LAYOUT
+                  RESHUFFLE
                 </button>
                 <button className="btn-primary" onClick={() => setTab('result')}>
-                  SHOW RESULTS
+                  RESULTS
                 </button>
               </div>
             </div>
 
             {/* Person Selector */}
             <section className="person-section">
-              <h2 className="section-label">⚔ ACTIVE STRATEGIST SELECTION</h2>
+              <h2 className="section-label">⚔ ACTIVE STRATEGIST</h2>
               <div className="person-grid">
                 {PEOPLE.map((p) => (
                   <button
@@ -249,95 +262,7 @@ export default function App() {
                 )
               })}
             </section>
-
-            {/* Bottom Panel */}
-            <section className="bottom-panel">
-              {/* Live Score Simulation */}
-              <div className="live-score-panel">
-                <div className="live-score-header">
-                  <h3 className="live-score-title">LIVE SCORE SIMULATION</h3>
-                  <span className="live-score-updated">
-                    {latestActivity
-                      ? `UPDATED ${timeAgo(latestActivity.at, now)}`
-                      : 'NO DATA YET'}
-                  </span>
-                </div>
-                <div className="live-score-body">
-                  <div className="score-stat estimated">
-                    <span className="score-stat-value">{liveScore.total}</span>
-                    <span className="score-stat-label">ESTIMATED PTS</span>
-                  </div>
-                  <div className="score-bar-container">
-                    <div
-                      className="score-bar-fill"
-                      style={{
-                        width: `${
-                          liveScore.maxPossible > 0
-                            ? (liveScore.total / liveScore.maxPossible) * 100
-                            : 0
-                        }%`,
-                      }}
-                    />
-                    <div
-                      className="score-bar-opponent"
-                      style={{
-                        width: `${
-                          liveScore.maxPossible > 0
-                            ? (liveScore.opponent / liveScore.maxPossible) * 100
-                            : 0
-                        }%`,
-                      }}
-                    />
-                  </div>
-                  <div className="score-stat opponent">
-                    <span className="score-stat-value">{liveScore.opponent}</span>
-                    <span className="score-stat-label">OPPONENT PTS</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* CMD Activity Log */}
-              <div className="cmd-panel">
-                <div className="cmd-header">
-                  <span className="cmd-badge">CMD</span>
-                  {awaitingPerson ? (
-                    <span className="cmd-awaiting">
-                      <span className="cmd-indicator" />
-                      AWAITING ESTIMATE FOR: {awaitingPerson.toUpperCase()}
-                    </span>
-                  ) : liveScore.count === PEOPLE.length ? (
-                    <span className="cmd-awaiting">
-                      <span className="cmd-indicator" />
-                      ALL ESTIMATES SUBMITTED
-                    </span>
-                  ) : null}
-                </div>
-                <div className="cmd-body">
-                  {latestActivity ? (
-                    <>
-                      <p className="cmd-log">
-                        {latestActivity.person} selected &lsquo;
-                        {latestActivity.display}&rsquo; estimate
-                        {liveScore.best !== null &&
-                          ` · Best: ${liveScore.best} · Lowest: ${liveScore.lowest}`}
-                      </p>
-                      <button
-                        className="cmd-link"
-                        onClick={() => setTab('result')}
-                      >
-                        VIEW MATRIX DETAILS &gt;
-                      </button>
-                    </>
-                  ) : (
-                    <p className="cmd-log">
-                      No estimates recorded yet. Select a strategist and choose
-                      a score range.
-                    </p>
-                  )}
-                </div>
-              </div>
-            </section>
-          </>
+          </div>
         )}
 
         {/* ---- Result View ---- */}
@@ -351,6 +276,68 @@ export default function App() {
               <button className="btn-danger" onClick={handleReset}>
                 RESET DATA
               </button>
+            </div>
+
+            {/* Live Score Simulation */}
+            <div className="live-score-panel">
+              <div className="live-score-header">
+                <h3 className="live-score-title">LIVE SCORE SIMULATION</h3>
+                <span className="live-score-updated">
+                  {latestActivity
+                    ? `UPDATED ${timeAgo(latestActivity.at, now)}`
+                    : 'NO DATA YET'}
+                </span>
+              </div>
+              <div className="live-score-body">
+                {/* Best Scenario */}
+                <div className="live-score-scenario">
+                  <span className="scenario-title best">BEST SCENARIO</span>
+                  <div className="scenario-row">
+                    <div className="score-stat estimated">
+                      <span className="score-stat-value">{liveScore.bestTotal}</span>
+                      <span className="score-stat-label">OUR PTS</span>
+                    </div>
+                    <div className="score-bar-container">
+                      <div
+                        className="score-bar-fill"
+                        style={{ width: `${(liveScore.bestTotal / liveScore.maxPossible) * 100}%` }}
+                      />
+                      <div
+                        className="score-bar-opponent"
+                        style={{ width: `${(liveScore.bestOpponent / liveScore.maxPossible) * 100}%` }}
+                      />
+                    </div>
+                    <div className="score-stat opponent">
+                      <span className="score-stat-value">{liveScore.bestOpponent}</span>
+                      <span className="score-stat-label">OPP PTS</span>
+                    </div>
+                  </div>
+                </div>
+                {/* Worst Scenario */}
+                <div className="live-score-scenario">
+                  <span className="scenario-title worst">WORST SCENARIO</span>
+                  <div className="scenario-row">
+                    <div className="score-stat estimated">
+                      <span className="score-stat-value">{liveScore.worstTotal}</span>
+                      <span className="score-stat-label">OUR PTS</span>
+                    </div>
+                    <div className="score-bar-container">
+                      <div
+                        className="score-bar-fill worst"
+                        style={{ width: `${(liveScore.worstTotal / liveScore.maxPossible) * 100}%` }}
+                      />
+                      <div
+                        className="score-bar-opponent"
+                        style={{ width: `${(liveScore.worstOpponent / liveScore.maxPossible) * 100}%` }}
+                      />
+                    </div>
+                    <div className="score-stat opponent">
+                      <span className="score-stat-value">{liveScore.worstOpponent}</span>
+                      <span className="score-stat-label">OPP PTS</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="result-table-container">
@@ -404,20 +391,20 @@ export default function App() {
             {/* Summary Stats */}
             <div className="result-summary">
               <div className="summary-card">
-                <span className="summary-label">BEST ESTIMATE</span>
+                <span className="summary-label">BEST SCENARIO</span>
                 <span className="summary-value best">
-                  {liveScore.best ?? '—'}
+                  {liveScore.bestTotal} — {liveScore.bestOpponent}
                 </span>
               </div>
               <div className="summary-card">
-                <span className="summary-label">LOWEST ESTIMATE</span>
+                <span className="summary-label">WORST SCENARIO</span>
                 <span className="summary-value lowest">
-                  {liveScore.lowest ?? '—'}
+                  {liveScore.worstTotal} — {liveScore.worstOpponent}
                 </span>
               </div>
               <div className="summary-card">
-                <span className="summary-label">TOTAL ESTIMATED</span>
-                <span className="summary-value">{liveScore.total}</span>
+                <span className="summary-label">TOTAL POOL</span>
+                <span className="summary-value">{liveScore.maxPossible}</span>
               </div>
               <div className="summary-card">
                 <span className="summary-label">SUBMISSIONS</span>
